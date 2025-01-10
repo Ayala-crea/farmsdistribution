@@ -1,0 +1,42 @@
+name: Deploy to Heroku
+
+on:
+  push:
+    branches:
+      - main  # Branch yang akan memicu deployment
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    # 1. Checkout kode dari repository
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    # 2. Install Heroku CLI
+    - name: Install Heroku CLI
+      run: |
+        curl https://cli-assets.heroku.com/install.sh | sh
+
+    # 3. Login ke Heroku menggunakan API key
+    - name: Login to Heroku
+      env:
+        HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
+      run: heroku auth:token
+
+    # 4. Validasi stack Heroku (Opsional)
+    - name: Validate Heroku Stack
+      env:
+        HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
+      run: |
+        heroku stack -a farmdistribution
+
+    # 5. Deploy aplikasi ke Heroku
+    - name: Deploy to Heroku
+      env:
+        HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
+      run: |
+        heroku container:login
+        heroku container:push web -a farmdistribution
+        heroku container:release web -a farmdistribution
