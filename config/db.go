@@ -12,7 +12,7 @@ import (
 
 var MongoString = os.Getenv("MONGOSTRING")
 var PostgresString = os.Getenv("POSTGRESSTRING")
-var MONGOSTRINGGEO = "mongodb+srv://ayalarifki:SGUHrRfraNWw3jso@geofarmradius.ij4sw.mongodb.net/"
+var MONGOSTRINGGEO = os.Getenv("MONGOSTRINGGEO")
 
 var (
 	Mongoconn, ErrorMongoconn = atdb.MongoConnect(atdb.DBInfo{
