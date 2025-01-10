@@ -28,6 +28,7 @@ func InitializeRoutes() *mux.Router {
 	// Auth
 	router.HandleFunc("/regis", handleCORS(auth.RegisterUser)).Methods("POST", "OPTIONS")
 	router.HandleFunc("/login", handleCORS(auth.LoginUsers)).Methods("POST", "OPTIONS")
+	router.HandleFunc("/reset-password", handleCORS(auth.ResetPassword)).Methods("POST", "OPTIONS")
 
 	// Profile
 	router.HandleFunc("/profile", handleCORS(profile.GetProfile)).Methods("GET", "OPTIONS")
