@@ -1,5 +1,7 @@
 package model
 
+import "go.mongodb.org/mongo-driver/bson/primitive"
+
 type Peternakan struct {
 	User_id            int64   `json:"user_id"`
 	Nama_peternakan    string  `json:"nama_peternakan"`
@@ -33,4 +35,17 @@ type Farms struct {
 	Email           string  `json:"email"`
 	Website         string  `json:"website"`
 	Description     string  `json:"description"`
+}
+
+type ReqPeternakan struct {
+	ID         primitive.ObjectID `bson:"_id"`
+	User_id    int64              `json:"user_id"`
+	Keterangan string             `json:"keterangan"`
+}
+
+type ResReqPeternakan struct {
+	ReqPeternakan
+	NamaAkun string `json:"nama_akun"`
+	NoTelp   string `json:"no_telp"`
+	Email    string `json:"email"`
 }
