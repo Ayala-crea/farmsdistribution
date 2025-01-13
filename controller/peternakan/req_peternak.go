@@ -318,3 +318,44 @@ func UpdateRole(w http.ResponseWriter, r *http.Request) {
 		"status":  "success",
 	})
 }
+
+func CekUsers(w http.ResponseWriter, r *http.Request) {
+	// Set response header to JSON
+	w.Header().Set("Content-Type", "application/json")
+
+	// Decode token to validate user
+	payload, err := watoken.Decode(config.PUBLICKEY, at.GetLoginFromHeader(r))
+	if err != nil {
+		log.Println("[ERROR] Invalid or expired token:", err)
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":   "Unauthorized",
+			"message": "Invalid or expired token. Please log in again.",
+		})
+		return
+	}
+
+	sqlDB, err := config.PostgresDB.DB()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	var akun model.Akun
+	DataRole := `SELECT nama, id_role FROM akun WHERE no_telp = $1`
+	err = sqlDB.QueryRow(DataRole, payload.Id).Scan(&akun.Nama, &akun.RoleID)
+	if err != nil {
+		log.Println("[ERROR] Failed to find owner ID:", err)
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":   "User not found",
+			"message": "No account found for the given phone number.",
+		})
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"message": "Data successfully retrieved",
+		"data":    akun.RoleID,
+	})
+}

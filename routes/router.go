@@ -73,6 +73,7 @@ func InitializeRoutes() *mux.Router {
 	router.HandleFunc("/get/req/peternak", handleCORS(peternakan.GetReqPeternakan)).Methods("GET", "OPTIONS")
 	router.HandleFunc("/delete/req/peternak", handleCORS(peternakan.DeleteReqPeternakan)).Methods("DELETE", "OPTIONS")
 	router.HandleFunc("/update/req/peternak", handleCORS(peternakan.UpdateRole)).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/status/peternak", handleCORS(peternakan.CekUsers)).Methods("GET", "OPTIONS")
 
 	// Status Product
 	router.HandleFunc("/status-product", handleCORS(peternakan.CreateStatusProduct)).Methods("POST", "OPTIONS")
