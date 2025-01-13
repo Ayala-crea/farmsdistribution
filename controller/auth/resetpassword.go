@@ -53,9 +53,24 @@ func ResetPassword(w http.ResponseWriter, r *http.Request) {
 
 	// Check if user exists
 	var userID int
-	query := `SELECT id_user FROM akun WHERE email = $1 OR no_telp = $2`
-	err = sqlDB.QueryRow(query, request.Email, request.NoTelp).Scan(&userID)
-	if err != nil {
+	var exists bool
+	if request.Email != "" {
+		query := `SELECT id_user FROM akun WHERE email = $1`
+		err = sqlDB.QueryRow(query, request.Email).Scan(&userID)
+		if err == nil {
+			exists = true
+		}
+	}
+
+	if !exists && request.NoTelp != "" {
+		query := `SELECT id_user FROM akun WHERE no_telp = $1`
+		err = sqlDB.QueryRow(query, request.NoTelp).Scan(&userID)
+		if err == nil {
+			exists = true
+		}
+	}
+
+	if !exists {
 		log.Println("User not found:", err)
 		w.WriteHeader(http.StatusNotFound)
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -96,6 +111,4 @@ func ResetPassword(w http.ResponseWriter, r *http.Request) {
 		"status":  "success",
 		"message": "Password reset successfully. You can now log in with the new password.",
 	})
-
-	log.Println("Proses reset password selesai.")
 }
