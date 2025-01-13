@@ -83,6 +83,7 @@ func ReqPeternak(w http.ResponseWriter, r *http.Request) {
 
 	// Prepare data to insert
 	NewReqPeternakan := model.ReqPeternakan{
+		ID:         primitive.NewObjectID(),
 		User_id:    ownerID,
 		Keterangan: reqBody.Keterangan,
 	}
@@ -154,11 +155,15 @@ func GetReqPeternakan(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
+		// Convert _id (ObjectID) to string
+		objectID := req.ID
+
 		enhancedReq := model.ResReqPeternakan{
 			ReqPeternakan: req,
 			NamaAkun:      account.NamaAkun,
 			NoTelp:        account.NoTelp,
 			Email:         account.Email,
+			ID:            objectID.Hex(), // Convert ObjectID to string
 		}
 		enhancedData = append(enhancedData, enhancedReq)
 	}
@@ -272,13 +277,15 @@ func UpdateRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Printf("[INFO] Found req_peternakan document for user_id %d", reqPeternakan.User_id)
+
 	// Update role_id in PostgreSQL
 	sqlDB, err := config.PostgresDB.DB()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	updateQuery := `UPDATE akun SET role_id = 11 WHERE id_user = $1`
+	updateQuery := `UPDATE akun SET id_role = 11 WHERE id_user = $1`
 	_, err = sqlDB.Exec(updateQuery, reqPeternakan.User_id)
 	if err != nil {
 		log.Println("[ERROR] Failed to update role_id in akun:", err)

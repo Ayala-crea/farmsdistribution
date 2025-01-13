@@ -38,12 +38,13 @@ type Farms struct {
 }
 
 type ReqPeternakan struct {
-	ID         primitive.ObjectID `bson:"_id"`
+	ID         primitive.ObjectID `bson:"_id,omitempty"`
 	User_id    int64              `json:"user_id"`
 	Keterangan string             `json:"keterangan"`
 }
 
 type ResReqPeternakan struct {
+	ID string `json:"id"`
 	ReqPeternakan
 	NamaAkun string `json:"nama_akun"`
 	NoTelp   string `json:"no_telp"`
