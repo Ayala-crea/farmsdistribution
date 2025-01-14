@@ -385,16 +385,7 @@ func GetOrderByID(w http.ResponseWriter, r *http.Request) {
 }
 
 // DeleteOrder deletes an order by its ID
-func DeleteOrder(w http.ResponseWriter, r *http.Request) {
-	log.Println("Memulai proses penghapusan order...")
-
-	orderID := r.URL.Query().Get("order_id")
-	if orderID == "" {
-		log.Println("Order ID tidak disediakan dalam permintaan.")
-		http.Error(w, "Order ID is required", http.StatusBadRequest)
-		return
-	}
-
+func DeleteOrderByInvoiceID(w http.ResponseWriter, r *http.Request) {
 	sqlDB, err := config.PostgresDB.DB()
 	if err != nil {
 		log.Println("Database connection error:", err)
@@ -402,81 +393,63 @@ func DeleteOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var invoiceID int64
-	invoiceQuery := `SELECT invoice_id FROM orders WHERE id = $1`
-	err = sqlDB.QueryRow(invoiceQuery, orderID).Scan(&invoiceID)
+	_, err = watoken.Decode(config.PUBLICKEY, at.GetLoginFromHeader(r))
 	if err != nil {
-		log.Println("Error retrieving invoice ID for order:", err)
-		http.Error(w, "Order not found", http.StatusNotFound)
+		log.Println("[ERROR] Invalid or expired token:", err)
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":   "Unauthorized",
+			"message": "Invalid or expired token. Please log in again.",
+		})
 		return
 	}
 
-	deleteOrderQuery := `DELETE FROM orders WHERE id = $1`
-	result, err := sqlDB.Exec(deleteOrderQuery, orderID)
-	if err != nil {
-		log.Println("Error deleting order:", err)
-		http.Error(w, "Failed to delete order", http.StatusInternalServerError)
-		return
+	// Decode request body untuk mendapatkan invoice_id
+	var requestData struct {
+		InvoiceID int64 `json:"invoice_id"`
 	}
-
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
-		log.Println("Order not found:", orderID)
-		http.Error(w, "Order not found", http.StatusNotFound)
-		return
-	}
-
-	remainingOrdersQuery := `SELECT COUNT(*) FROM orders WHERE invoice_id = $1`
-	var remainingOrders int
-	err = sqlDB.QueryRow(remainingOrdersQuery, invoiceID).Scan(&remainingOrders)
-	if err != nil {
-		log.Println("Error checking remaining orders for invoice:", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-
-	if remainingOrders == 0 {
-		deleteInvoiceQuery := `DELETE FROM invoice WHERE id = $1`
-		_, err := sqlDB.Exec(deleteInvoiceQuery, invoiceID)
-		if err != nil {
-			log.Println("Error deleting invoice:", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		log.Println("Invoice deleted as no orders remain for it.")
-	}
-
-	response := map[string]interface{}{
-		"message":  "Order deleted successfully",
-		"order_id": orderID,
-	}
-
-	w.WriteHeader(http.StatusNoContent)
-	json.NewEncoder(w).Encode(response)
-	log.Println("Proses penghapusan order selesai.")
-}
-
-// UpdateOrder updates an order's details
-func UpdateOrderStatus(w http.ResponseWriter, r *http.Request) {
-	log.Println("Memulai proses pembaruan order...")
-
-	orderID := r.URL.Query().Get("invoice_id")
-	if orderID == "" {
-		log.Println("Order ID tidak disediakan dalam permintaan.")
-		http.Error(w, "Order ID is required", http.StatusBadRequest)
-		return
-	}
-
-	var updatedOrder struct {
-		Status string `json:"status"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&updatedOrder); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&requestData); err != nil {
 		log.Println("Error decoding request body:", err)
 		http.Error(w, "Bad Request", http.StatusBadRequest)
 		return
 	}
 
+	// Validasi input
+	if requestData.InvoiceID == 0 {
+		log.Println("Validasi gagal: Invoice ID tidak boleh kosong.")
+		http.Error(w, "Invoice ID is required", http.StatusBadRequest)
+		return
+	}
+
+	// Hapus data dari tabel orders berdasarkan id_invoice
+	deleteOrdersQuery := `DELETE FROM orders WHERE invoice_id = $1`
+	_, err = sqlDB.Exec(deleteOrdersQuery, requestData.InvoiceID)
+	if err != nil {
+		log.Println("Error deleting orders:", err)
+		http.Error(w, "Failed to delete orders", http.StatusInternalServerError)
+		return
+	}
+
+	// Hapus data dari tabel invoice berdasarkan id_invoice
+	deleteInvoiceQuery := `DELETE FROM invoice WHERE id = $1`
+	_, err = sqlDB.Exec(deleteInvoiceQuery, requestData.InvoiceID)
+	if err != nil {
+		log.Println("Error deleting invoice:", err)
+		http.Error(w, "Failed to delete invoice", http.StatusInternalServerError)
+		return
+	}
+
+	// Response sukses
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"message":    "Order and Invoice deleted successfully",
+		"invoice_id": requestData.InvoiceID,
+	})
+	log.Println("Proses penghapusan order dan invoice selesai.")
+}
+
+// UpdateOrder updates an order's details
+func UpdateOrderStatus(w http.ResponseWriter, r *http.Request) {
 	sqlDB, err := config.PostgresDB.DB()
 	if err != nil {
 		log.Println("Database connection error:", err)
@@ -484,22 +457,58 @@ func UpdateOrderStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := `UPDATE orders SET status = $1, updated_at = NOW() WHERE invoice_id = $2`
-	result, err := sqlDB.Exec(query, updatedOrder.Status, orderID)
+	_, err = watoken.Decode(config.PUBLICKEY, at.GetLoginFromHeader(r))
 	if err != nil {
-		log.Println("Error updating order:", err)
-		http.Error(w, "Failed to update order", http.StatusInternalServerError)
+		log.Println("[ERROR] Invalid or expired token:", err)
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":   "Unauthorized",
+			"message": "Invalid or expired token. Please log in again.",
+		})
 		return
 	}
 
+	// Decode request body untuk mendapatkan data update
+	var requestData struct {
+		InvoiceID int64  `json:"invoice_id"`
+		Status    string `json:"status"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&requestData); err != nil {
+		log.Println("Error decoding request body:", err)
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+		return
+	}
+
+	// Validasi input
+	if requestData.InvoiceID == 0 || requestData.Status == "" {
+		log.Println("Validasi gagal: Invoice ID atau status tidak boleh kosong.")
+		http.Error(w, "Invoice ID and status are required", http.StatusBadRequest)
+		return
+	}
+
+	// Update status berdasarkan id_invoice
+	query := `UPDATE orders SET status = $1 WHERE invoice_id = $2`
+	result, err := sqlDB.Exec(query, requestData.Status, requestData.InvoiceID)
+	if err != nil {
+		log.Println("Error updating order status:", err)
+		http.Error(w, "Failed to update order status", http.StatusInternalServerError)
+		return
+	}
+
+	// Periksa apakah ada baris yang diperbarui
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
-		log.Println("Order not found:", orderID)
-		http.Error(w, "Order not found", http.StatusNotFound)
+		log.Println("No rows affected")
+		http.Error(w, "No orders found with the given invoice ID", http.StatusNotFound)
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": "Order updated successfully"})
-	log.Println("Proses pembaruan order selesai.")
+	// Response sukses
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"message":    "Order status updated successfully",
+		"invoice_id": requestData.InvoiceID,
+		"status":     requestData.Status,
+	})
+	log.Println("Proses update status order selesai.")
 }

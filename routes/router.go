@@ -95,7 +95,7 @@ func InitializeRoutes() *mux.Router {
 	router.HandleFunc("/all/order", handleCORS(order.GetOrdersByFarm)).Methods("GET", "OPTIONS")
 	router.HandleFunc("/order/by", handleCORS(order.GetOrderByID)).Methods("GET", "OPTIONS")
 	router.HandleFunc("/order/update", handleCORS(order.UpdateOrderStatus)).Methods("PUT", "OPTIONS")
-	router.HandleFunc("/order/delete", handleCORS(order.DeleteOrder)).Methods("DELETE", "OPTIONS")
+	router.HandleFunc("/order/delete", handleCORS(order.DeleteOrderByInvoiceID)).Methods("DELETE", "OPTIONS")
 
 	// get toko by location and radius
 	router.HandleFunc("/toko", handleCORS(radius.GetAllTokoByRadius)).Methods("GET", "OPTIONS")
