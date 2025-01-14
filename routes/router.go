@@ -94,6 +94,7 @@ func InitializeRoutes() *mux.Router {
 	router.HandleFunc("/order", handleCORS(order.CreateOrder)).Methods("POST", "OPTIONS")
 	router.HandleFunc("/all/order", handleCORS(order.GetOrdersByFarm)).Methods("GET", "OPTIONS")
 	router.HandleFunc("/order/by", handleCORS(order.GetOrderByID)).Methods("GET", "OPTIONS")
+	router.HandleFunc("/order/user", handleCORS(order.GetAllOrdersByUserID)).Methods("GET", "OPTIONS")
 	router.HandleFunc("/order/update", handleCORS(order.UpdateOrderStatus)).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/order/delete", handleCORS(order.DeleteOrderByInvoiceID)).Methods("DELETE", "OPTIONS")
 

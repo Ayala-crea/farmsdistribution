@@ -512,3 +512,142 @@ func UpdateOrderStatus(w http.ResponseWriter, r *http.Request) {
 	})
 	log.Println("Proses update status order selesai.")
 }
+
+func GetAllOrdersByUserID(w http.ResponseWriter, r *http.Request) {
+	sqlDB, err := config.PostgresDB.DB()
+	if err != nil {
+		log.Println("Database connection error:", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	// Decode payload dari token
+	payload, err := watoken.Decode(config.PUBLICKEY, at.GetLoginFromHeader(r))
+	if err != nil {
+		log.Println("Unauthorized: failed to decode token")
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Mendapatkan ownerID dari nomor telepon
+	var ownerID int
+	query := `SELECT id_user FROM akun WHERE no_telp = $1`
+	err = sqlDB.QueryRow(query, payload.Id).Scan(&ownerID)
+	if err != nil {
+		log.Println("Error retrieving user ID:", err)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Query untuk mendapatkan data orders berdasarkan user_id
+	query = `
+		SELECT 
+			o.id AS order_id, 
+			o.invoice_id, 
+			o.product_id, 
+			o.quantity, 
+			o.total_harga, 
+			o.status, 
+			o.created_at, 
+			o.updated_at, 
+			i.invoice_number, 
+			i.total_amount, 
+			i.payment_method, 
+			i.issued_date, 
+			i.due_date
+		FROM 
+			orders o
+		JOIN 
+			invoice i ON o.invoice_id = i.id
+		WHERE 
+			i.user_id = $1
+	`
+
+	rows, err := sqlDB.Query(query, ownerID)
+	if err != nil {
+		log.Println("[ERROR] Failed to fetch orders:", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":   "Database error",
+			"message": "Failed to fetch orders.",
+		})
+		return
+	}
+	defer rows.Close()
+
+	// Struktur untuk menyimpan data hasil query
+	type Order struct {
+		OrderID       int64     `json:"order_id"`
+		InvoiceID     int64     `json:"invoice_id"`
+		ProductID     int64     `json:"product_id"`
+		Quantity      int       `json:"quantity"`
+		TotalHarga    string    `json:"total_harga"`
+		Status        string    `json:"status"`
+		CreatedAt     time.Time `json:"created_at"`
+		UpdatedAt     time.Time `json:"updated_at"`
+		InvoiceNumber string    `json:"invoice_number"`
+		TotalAmount   string    `json:"total_amount"`
+		PaymentMethod string    `json:"payment_method"`
+		IssuedDate    time.Time `json:"issued_date"`
+		DueDate       time.Time `json:"due_date"`
+	}
+
+	// Menampung semua data orders
+	var orders []Order
+
+	// Iterasi hasil query
+	for rows.Next() {
+		var order Order
+		var totalHarga, totalAmount float64
+
+		err := rows.Scan(
+			&order.OrderID,
+			&order.InvoiceID,
+			&order.ProductID,
+			&order.Quantity,
+			&totalHarga,
+			&order.Status,
+			&order.CreatedAt,
+			&order.UpdatedAt,
+			&order.InvoiceNumber,
+			&totalAmount,
+			&order.PaymentMethod,
+			&order.IssuedDate,
+			&order.DueDate,
+		)
+		if err != nil {
+			log.Println("[ERROR] Failed to scan order row:", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error":   "Database error",
+				"message": "Failed to process orders.",
+			})
+			return
+		}
+
+		// Format harga dan total amount
+		order.TotalHarga = format.FormatCurrency(totalHarga) + "0"
+		order.TotalAmount = format.FormatCurrency(totalAmount) + "0"
+
+		orders = append(orders, order)
+	}
+
+	// Cek jika tidak ada orders
+	if len(orders) == 0 {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":   "No orders found",
+			"message": "There are no orders for this user.",
+		})
+		return
+	}
+
+	// Kirimkan response JSON
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":  "success",
+		"message": "Orders retrieved successfully.",
+		"data":    orders,
+	})
+	log.Println("Proses pengambilan semua order berdasarkan user ID selesai.")
+}
