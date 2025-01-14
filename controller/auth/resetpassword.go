@@ -52,30 +52,16 @@ func ResetPassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check if user exists
+	// Check if user exists with both email and no_telp
 	var userID int
-	var exists bool
-	if request.Email != "" {
-		query := `SELECT id_user FROM akun WHERE email = $1`
-		err = sqlDB.QueryRow(query, request.Email).Scan(&userID)
-		if err == nil {
-			exists = true
-		}
-	}
-
-	if !exists && request.NoTelp != "" {
-		query := `SELECT id_user FROM akun WHERE no_telp = $1`
-		err = sqlDB.QueryRow(query, request.NoTelp).Scan(&userID)
-		if err == nil {
-			exists = true
-		}
-	}
-
-	if !exists {
-		log.Println("User not found:", err)
+	query := `SELECT id_user FROM akun WHERE email = $1 AND no_telp = $2`
+	err = sqlDB.QueryRow(query, request.Email, request.NoTelp).Scan(&userID)
+	if err != nil {
+		log.Println("User not found or email and phone number do not match:", err)
 		w.WriteHeader(http.StatusNotFound)
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"error":   "User not found",
-			"message": "The provided email or phone number does not match any account.",
+			"message": "The provided email and phone number do not match any account.",
 		})
 		return
 	}
