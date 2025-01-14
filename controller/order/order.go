@@ -575,42 +575,38 @@ func GetAllOrdersByUserID(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	// Struktur untuk menyimpan data hasil query
-	type Order struct {
-		OrderID       int64     `json:"order_id"`
-		InvoiceID     int64     `json:"invoice_id"`
-		ProductID     int64     `json:"product_id"`
-		Quantity      int       `json:"quantity"`
-		TotalHarga    string    `json:"total_harga"`
-		Status        string    `json:"status"`
-		CreatedAt     time.Time `json:"created_at"`
-		UpdatedAt     time.Time `json:"updated_at"`
-		InvoiceNumber string    `json:"invoice_number"`
-		TotalAmount   string    `json:"total_amount"`
-		PaymentMethod string    `json:"payment_method"`
-		IssuedDate    time.Time `json:"issued_date"`
-		DueDate       time.Time `json:"due_date"`
-	}
-
-	// Menampung semua data orders
-	var orders []Order
+	// Struktur data untuk menyimpan hasil
+	invoices := make(map[int64]map[string]interface{})
 
 	// Iterasi hasil query
 	for rows.Next() {
-		var order Order
-		var totalHarga, totalAmount float64
+		var order struct {
+			OrderID       int64
+			InvoiceID     int64
+			ProductID     int64
+			Quantity      int
+			TotalHarga    float64
+			Status        string
+			CreatedAt     time.Time
+			UpdatedAt     time.Time
+			InvoiceNumber string
+			TotalAmount   float64
+			PaymentMethod string
+			IssuedDate    time.Time
+			DueDate       time.Time
+		}
 
 		err := rows.Scan(
 			&order.OrderID,
 			&order.InvoiceID,
 			&order.ProductID,
 			&order.Quantity,
-			&totalHarga,
+			&order.TotalHarga,
 			&order.Status,
 			&order.CreatedAt,
 			&order.UpdatedAt,
 			&order.InvoiceNumber,
-			&totalAmount,
+			&order.TotalAmount,
 			&order.PaymentMethod,
 			&order.IssuedDate,
 			&order.DueDate,
@@ -625,21 +621,51 @@ func GetAllOrdersByUserID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Format harga dan total amount
-		order.TotalHarga = format.FormatCurrency(totalHarga) + "0"
-		order.TotalAmount = format.FormatCurrency(totalAmount) + "0"
+		var product model.Products
+		queryProduct := `SELECT name, price_per_kg FROM farm_products WHERE id = $1`
+		err = sqlDB.QueryRow(queryProduct, order.ProductID).Scan(&product.ProductName, &product.PricePerKg)
+		if err != nil {
+			log.Println("[ERROR] Failed to retrieve product details:", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error":   "Database error",
+				"message": "Failed to retrieve product details.",
+			})
+			return
+		}
 
-		orders = append(orders, order)
+		// Organisasi data berdasarkan invoice
+		if _, exists := invoices[order.InvoiceID]; !exists {
+			invoices[order.InvoiceID] = map[string]interface{}{
+				"invoice_id":     order.InvoiceID,
+				"invoice_number": order.InvoiceNumber,
+				"total_amount":   format.FormatCurrency(order.TotalAmount) + "0",
+				"payment_method": order.PaymentMethod,
+				"issued_date":    order.IssuedDate,
+				"due_date":       order.DueDate,
+				"products":       []map[string]interface{}{},
+			}
+		}
+
+		productDetails := map[string]interface{}{
+			"order_id":     order.OrderID,
+			"product_id":   order.ProductID,
+			"product_name": product.ProductName,
+			"price_per_kg": product.PricePerKg,
+			"quantity":     order.Quantity,
+			"total_harga":  format.FormatCurrency(order.TotalHarga) + "0",
+			"status":       order.Status,
+			"created_at":   order.CreatedAt,
+			"updated_at":   order.UpdatedAt,
+		}
+		invoices[order.InvoiceID]["products"] = append(invoices[order.InvoiceID]["products"].([]map[string]interface{}), productDetails)
+
 	}
 
-	// Cek jika tidak ada orders
-	if len(orders) == 0 {
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error":   "No orders found",
-			"message": "There are no orders for this user.",
-		})
-		return
+	// Konversi map ke array untuk response JSON
+	var result []map[string]interface{}
+	for _, invoice := range invoices {
+		result = append(result, invoice)
 	}
 
 	// Kirimkan response JSON
@@ -647,7 +673,7 @@ func GetAllOrdersByUserID(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":  "success",
 		"message": "Orders retrieved successfully.",
-		"data":    orders,
+		"data":    result,
 	})
 	log.Println("Proses pengambilan semua order berdasarkan user ID selesai.")
 }
