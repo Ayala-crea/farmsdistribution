@@ -5,6 +5,7 @@ import (
 	"farmdistribution_be/config"
 	"farmdistribution_be/helper/at"
 	"farmdistribution_be/helper/atdb"
+	"farmdistribution_be/helper/format"
 	"farmdistribution_be/helper/ghupload"
 	"farmdistribution_be/helper/watoken"
 	"fmt"
@@ -248,7 +249,7 @@ func GetAllProduct(w http.ResponseWriter, r *http.Request) {
 		ID            int64      `json:"id"`
 		Name          string     `json:"name"`
 		Description   string     `json:"description"`
-		PricePerKg    float64    `json:"price_per_kg"`
+		PricePerKg    string     `json:"price_per_kg"`
 		WeightPerUnit float64    `json:"weight_per_unit"`
 		ImageURL      string     `json:"image_url"`
 		StockKg       float64    `json:"stock_kg"`
@@ -288,6 +289,18 @@ func GetAllProduct(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
+
+		pricePerKgFloat, err := strconv.ParseFloat(product.PricePerKg, 64)
+		if err != nil {
+			log.Printf("[ERROR] Failed to parse price_per_kg: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error":   "Data error",
+				"message": "Failed to parse product price.",
+			})
+			return
+		}
+		product.PricePerKg = format.FormatCurrency(pricePerKgFloat)
 
 		// Konversi URL gambar menjadi format raw jika diperlukan
 		if strings.Contains(product.ImageURL, "https://github.com/") {
@@ -875,7 +888,7 @@ func GetProductById(w http.ResponseWriter, r *http.Request) {
 			"id":              product.ID,
 			"name":            product.Name,
 			"description":     product.Description,
-			"price_per_kg":    product.PricePerKg,
+			"price_per_kg":    format.FormatCurrency(product.PricePerKg) + "0",
 			"weight_per_unit": product.WeightPerUnit,
 			"image_url":       product.ImageURL,
 			"stock_kg":        product.StockKg,
@@ -1005,4 +1018,124 @@ func DeleteProduk(w http.ResponseWriter, r *http.Request) {
 		"status":  "success",
 		"message": "Product deleted successfully.",
 	})
+}
+
+func GetAllProductsByFarm(w http.ResponseWriter, r *http.Request) {
+	sqlDB, err := config.PostgresDB.DB()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// // Decode JWT
+	// _, err = watoken.Decode(config.PUBLICKEY, at.GetLoginFromHeader(r))
+	// if err != nil {
+	// 	w.WriteHeader(http.StatusUnauthorized)
+	// 	json.NewEncoder(w).Encode(map[string]string{
+	// 		"error":   "Unauthorized",
+	// 		"message": "Invalid or expired token. Please log in again.",
+	// 	})
+	// 	return
+	// }
+
+	id_farm := r.URL.Query().Get("id_farm")
+	if id_farm == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":   "Missing ID",
+			"message": "Please provide a valid farm ID in the URL.",
+		})
+		return
+	}
+
+	// Query semua produk berdasarkan farm_id
+	query := `
+		SELECT 
+			fp.id, fp.name, fp.description, fp.price_per_kg, 
+			fp.weight_per_unit, fp.image_url, fp.stock_kg, 
+			sp.name AS status_name, sp.available_date
+		FROM 
+			farm_products fp
+		JOIN 
+			status_product sp ON fp.status_id = sp.id
+		WHERE 
+			fp.farm_id = $1
+	`
+
+	rows, err := sqlDB.Query(query, id_farm)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":   "Database error",
+			"message": "Failed to fetch products.",
+		})
+		return
+	}
+	defer rows.Close()
+
+	// Parsing hasil query
+	var products []map[string]interface{}
+	for rows.Next() {
+		var (
+			id            int
+			name          string
+			description   string
+			pricePerKg    float64
+			weightPerUnit float64
+			imageURL      string
+			stockKg       float64
+			statusName    string
+			availableDate *string
+		)
+
+		err = rows.Scan(
+			&id,
+			&name,
+			&description,
+			&pricePerKg,
+			&weightPerUnit,
+			&imageURL,
+			&stockKg,
+			&statusName,
+			&availableDate,
+		)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error":   "Database error",
+				"message": "Failed to parse product data.",
+			})
+			return
+		}
+
+		product := map[string]interface{}{
+			"id":              id,
+			"name":            name,
+			"description":     description,
+			"price_per_kg":    format.FormatCurrency(pricePerKg) + "0",
+			"weight_per_unit": weightPerUnit,
+			"image_url":       imageURL,
+			"stock_kg":        stockKg,
+			"status_name":     statusName,
+			"available_date":  availableDate,
+		}
+		products = append(products, product)
+	}
+
+	if err = rows.Err(); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":   "Database error",
+			"message": "Error iterating through products.",
+		})
+		return
+	}
+
+	// Response
+	response := map[string]interface{}{
+		"status":  "success",
+		"message": "Products fetched successfully.",
+		"data":    products,
+	}
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
 }
