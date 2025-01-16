@@ -1,6 +1,7 @@
 package order
 
 import (
+	"database/sql"
 	"encoding/json"
 	"farmdistribution_be/config"
 	"farmdistribution_be/helper/at"
@@ -318,16 +319,8 @@ func GetOrdersByFarm(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetOrderByID retrieves a single order by its ID
-func GetOrderByID(w http.ResponseWriter, r *http.Request) {
-	log.Println("Memulai proses pengambilan order berdasarkan ID...")
-
-	orderID := r.URL.Query().Get("order_id")
-	if orderID == "" {
-		log.Println("Order ID tidak disediakan dalam permintaan.")
-		http.Error(w, "Order ID is required", http.StatusBadRequest)
-		return
-	}
-
+func GetOrderByInvoiceID(w http.ResponseWriter, r *http.Request) {
+	// Mendapatkan koneksi database
 	sqlDB, err := config.PostgresDB.DB()
 	if err != nil {
 		log.Println("Database connection error:", err)
@@ -335,53 +328,98 @@ func GetOrderByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var order model.Order
-	query := `SELECT id, user_id, product_id, quantity, total_harga, status, invoice_id, created_at, updated_at FROM orders WHERE id = $1`
-	err = sqlDB.QueryRow(query, orderID).Scan(&order.ID, &order.UserID, &order.ProductID, &order.Quantity, &order.TotalHarga, &order.Status, &order.InvoiceID, &order.CreatedAt, &order.UpdatedAt)
-	if err != nil {
-		log.Println("Error retrieving order by ID:", err)
-		http.Error(w, "Order not found", http.StatusNotFound)
+	// Mendapatkan parameter id_invoice dari URL
+	invoiceID := r.URL.Query().Get("id_invoice")
+	if invoiceID == "" {
+		log.Println("Missing id_invoice parameter")
+		http.Error(w, "id_invoice is required", http.StatusBadRequest)
 		return
 	}
 
-	var invoice model.Invoice
-	query = `SELECT invoice_number, total_amount, total_harga_product, created_at FROM invoice WHERE id = $1`
-	err = sqlDB.QueryRow(query, order.InvoiceID).Scan(&invoice.InvoiceNumber, &invoice.TotalAmount, &invoice.TotalHargaProduct, &invoice.CreatedAt)
+	// Ambil data invoice
+	var invoice struct {
+		InvoiceNumber string  `json:"invoice_number"`
+		PaymentStatus string  `json:"payment_status"`
+		PaymentMethod string  `json:"payment_method"`
+		IssuedDate    string  `json:"issued_date"`
+		DueDate       string  `json:"due_date"`
+		TotalAmount   float64 `json:"total_amount"`
+		ShippingCost  float64 `json:"shipping_cost"`
+		TotalHarga    float64 `json:"total_harga_product"`
+	}
+	queryInvoice := `
+		SELECT invoice_number, payment_status, payment_method, issued_date, due_date, total_amount, 
+		       (total_amount - total_harga_product) AS shipping_cost, total_harga_product
+		FROM invoice WHERE id = $1`
+	err = sqlDB.QueryRow(queryInvoice, invoiceID).Scan(
+		&invoice.InvoiceNumber,
+		&invoice.PaymentStatus,
+		&invoice.PaymentMethod,
+		&invoice.IssuedDate,
+		&invoice.DueDate,
+		&invoice.TotalAmount,
+		&invoice.ShippingCost,
+		&invoice.TotalHarga,
+	)
 	if err != nil {
-		log.Println("Error retrieving invoice by ID:", err)
-		http.Error(w, "Invoice not found", http.StatusNotFound)
+		if err == sql.ErrNoRows {
+			log.Println("Invoice not found:", err)
+			http.Error(w, "Invoice not found", http.StatusNotFound)
+		} else {
+			log.Println("Error retrieving invoice:", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		}
 		return
 	}
 
-	var product model.Products
-	query = `SELECT name, price_per_kg FROM farm_products WHERE id = $1`
-	err = sqlDB.QueryRow(query, order.ProductID).Scan(&product.ProductName, &product.PricePerKg)
+	// Ambil data orders berdasarkan id_invoice
+	var orders []struct {
+		ProductID   int     `json:"product_id"`
+		ProductName string  `json:"product_name"`
+		Quantity    int     `json:"quantity"`
+		TotalHarga  float64 `json:"total_harga"`
+	}
+	queryOrders := `
+		SELECT o.product_id, fp.name AS product_name, o.quantity, o.total_harga
+		FROM orders o
+		JOIN farm_products fp ON o.product_id = fp.id
+		WHERE o.invoice_id = $1`
+	rows, err := sqlDB.Query(queryOrders, invoiceID)
 	if err != nil {
-		log.Println("Error retrieving product by ID:", err)
-		http.Error(w, "Product not found", http.StatusNotFound)
+		log.Println("Error retrieving orders:", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var order struct {
+			ProductID   int     `json:"product_id"`
+			ProductName string  `json:"product_name"`
+			Quantity    int     `json:"quantity"`
+			TotalHarga  float64 `json:"total_harga"`
+		}
+		if err := rows.Scan(&order.ProductID, &order.ProductName, &order.Quantity, &order.TotalHarga); err != nil {
+			log.Println("Error scanning order row:", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+		orders = append(orders, order)
+	}
+
+	if err := rows.Err(); err != nil {
+		log.Println("Error iterating over order rows:", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 
-	orderMap := map[string]interface{}{
-		"id":                  order.ID,
-		"product_name":        product.ProductName,
-		"price_per_kg":        product.PricePerKg,
-		"invoice_number":      invoice.InvoiceNumber,
-		"total_amount":        invoice.TotalAmount,
-		"total_harga_product": invoice.TotalHargaProduct,
-		"user_id":             order.UserID,
-		"product_id":          order.ProductID,
-		"quantity":            order.Quantity,
-		"total_harga":         order.TotalHarga,
-		"status":              order.Status,
-		"invoice_id":          order.InvoiceID,
-		"created_at":          order.CreatedAt,
-		"updated_at":          order.UpdatedAt,
-	}
-
+	// Response sukses
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(orderMap)
-	log.Println("Proses pengambilan order berdasarkan ID selesai.")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"invoice": invoice,
+		"orders":  orders,
+	})
 }
 
 // DeleteOrder deletes an order by its ID
