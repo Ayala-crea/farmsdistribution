@@ -15,7 +15,6 @@ import (
 )
 
 func CreateOrder(w http.ResponseWriter, r *http.Request) {
-
 	// Mendapatkan koneksi database
 	sqlDB, err := config.PostgresDB.DB()
 	if err != nil {
@@ -73,7 +72,7 @@ func CreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Hitung shipping cost berdasarkan distance, fuel consumption, dan fuel price
+	// Hitung shipping cost
 	shippingCost := Orders.DistanceKM * fuelConsumption * fuelPrice
 
 	// Mulai transaksi database
@@ -89,9 +88,7 @@ func CreateOrder(w http.ResponseWriter, r *http.Request) {
 
 	// Insert invoice dengan total_amount kosong
 	var invoiceId int
-	insertInvoiceQuery := `
-        INSERT INTO invoice (user_id, invoice_number, payment_status, payment_method, issued_date, due_date, total_amount, created_at, updated_at)
-        VALUES ($1, $2, 'Pending', $3, NOW(), NOW() + INTERVAL '7 days', 0, NOW(), NOW()) RETURNING id`
+	insertInvoiceQuery := `INSERT INTO invoice (user_id, invoice_number, payment_status, payment_method, issued_date, due_date, total_amount, created_at, updated_at) VALUES ($1, $2, 'Pending', $3, NOW(), NOW() + INTERVAL '7 days', 0, NOW(), NOW()) RETURNING id`
 	err = tx.QueryRow(insertInvoiceQuery, ownerID, invoiceNumber, Orders.PaymentMethod).Scan(&invoiceId)
 	if err != nil {
 		log.Println("Error inserting invoice:", err)
@@ -100,13 +97,10 @@ func CreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Iterasi setiap produk dan masukkan ke tabel orders
-	for i, product := range Orders.Products {
-		log.Printf("Memproses produk ke-%d: %+v\n", i+1, product)
-
-		var productPrice float64
-		queryProduct := `SELECT price_per_kg FROM farm_products WHERE id = $1`
-		err = sqlDB.QueryRow(queryProduct, product.ProductID).Scan(&productPrice)
+	for _, product := range Orders.Products {
+		var productPrice, stockKg float64
+		queryProduct := `SELECT price_per_kg, stock_kg FROM farm_products WHERE id = $1`
+		err = tx.QueryRow(queryProduct, product.ProductID).Scan(&productPrice, &stockKg)
 		if err != nil {
 			log.Println("Error retrieving product details:", err)
 			tx.Rollback()
@@ -114,13 +108,16 @@ func CreateOrder(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Hitung total harga produk
+		if stockKg < float64(product.Quantity) {
+			log.Println("Stock tidak mencukupi untuk produk:", product.ProductID)
+			tx.Rollback()
+			http.Error(w, "Stock is insufficient", http.StatusBadRequest)
+			return
+		}
+
 		productTotal := productPrice * float64(product.Quantity)
 
-		// Insert data produk ke tabel orders
-		insertOrderQuery := `
-            INSERT INTO orders (user_id, product_id, quantity, total_harga, status, pengiriman_id, invoice_id, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, 'Pending', $5, $6, NOW(), NOW())`
+		insertOrderQuery := `INSERT INTO orders (user_id, product_id, quantity, total_harga, status, pengiriman_id, invoice_id, created_at, updated_at) VALUES ($1, $2, $3, $4, 'Pending', $5, $6, NOW(), NOW())`
 		_, err = tx.Exec(insertOrderQuery, ownerID, product.ProductID, product.Quantity, productTotal, Orders.PengirimanID, invoiceId)
 		if err != nil {
 			log.Println("Error inserting order:", err)
@@ -128,14 +125,19 @@ func CreateOrder(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Failed to create order", http.StatusInternalServerError)
 			return
 		}
+
+		updateStockQuery := `UPDATE farm_products SET stock_kg = stock_kg - $1 WHERE id = $2`
+		_, err = tx.Exec(updateStockQuery, product.Quantity, product.ProductID)
+		if err != nil {
+			log.Println("Error updating product stock:", err)
+			tx.Rollback()
+			http.Error(w, "Failed to update stock", http.StatusInternalServerError)
+			return
+		}
 	}
 
-	// Hitung total amount dari tabel orders berdasarkan invoice_id
 	var totalHargaOrders float64
-	queryTotalHarga := `
-    SELECT COALESCE(SUM(total_harga), 0) 
-    FROM orders 
-    WHERE invoice_id = $1`
+	queryTotalHarga := `SELECT COALESCE(SUM(total_harga), 0) FROM orders WHERE invoice_id = $1`
 	err = tx.QueryRow(queryTotalHarga, invoiceId).Scan(&totalHargaOrders)
 	if err != nil {
 		log.Println("Error retrieving total harga from orders:", err)
@@ -144,14 +146,9 @@ func CreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Hitung total amount dengan menambahkan ShippingCost
 	totalAmount := totalHargaOrders + shippingCost
 
-	// Update total_amount di tabel invoice
-	updateInvoiceQuery := `
-    UPDATE invoice 
-    SET total_amount = $1, total_harga_product = $2 
-    WHERE id = $3`
+	updateInvoiceQuery := `UPDATE invoice SET total_amount = $1, total_harga_product = $2 WHERE id = $3`
 	_, err = tx.Exec(updateInvoiceQuery, totalAmount, totalHargaOrders, invoiceId)
 	if err != nil {
 		log.Println("Error updating invoice total_amount:", err)
@@ -160,14 +157,12 @@ func CreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Commit transaksi
 	if err := tx.Commit(); err != nil {
 		log.Println("Error committing transaction:", err)
 		http.Error(w, "Failed to create order and invoice", http.StatusInternalServerError)
 		return
 	}
 
-	// Response sukses
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]interface{}{
