@@ -226,7 +226,7 @@ func GetOrdersByFarm(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Query untuk mendapatkan data orders berdasarkan farm ID
-	query = `SELECT o.id, o.invoice_id, o.product_id, o.quantity, o.total_harga, o.status, o.created_at, o.updated_at, i.invoice_number, i.total_amount, i.user_id
+	query = `SELECT o.id, o.invoice_id, o.product_id, o.quantity, o.total_harga, o.status, o.created_at, o.updated_at, i.invoice_number, i.total_amount, i.user_id, i.proof_of_transfer
               FROM orders o
               JOIN farm_products fp ON o.product_id = fp.id
               JOIN invoice i ON o.invoice_id = i.id
@@ -245,20 +245,21 @@ func GetOrdersByFarm(w http.ResponseWriter, r *http.Request) {
 
 	for rows.Next() {
 		var order struct {
-			OrderID     int64
-			InvoiceID   int64
-			ProductID   int64
-			Quantity    int
-			TotalHarga  float64
-			Status      string
-			CreatedAt   string
-			UpdatedAt   string
-			InvoiceNo   string
-			TotalAmount float64
-			UserID      int64
+			OrderID         int64
+			InvoiceID       int64
+			ProductID       int64
+			Quantity        int
+			TotalHarga      float64
+			Status          string
+			CreatedAt       string
+			UpdatedAt       string
+			InvoiceNo       string
+			TotalAmount     float64
+			UserID          int64
+			ProofOfTransfer *string
 		}
 
-		if err := rows.Scan(&order.OrderID, &order.InvoiceID, &order.ProductID, &order.Quantity, &order.TotalHarga, &order.Status, &order.CreatedAt, &order.UpdatedAt, &order.InvoiceNo, &order.TotalAmount, &order.UserID); err != nil {
+		if err := rows.Scan(&order.OrderID, &order.InvoiceID, &order.ProductID, &order.Quantity, &order.TotalHarga, &order.Status, &order.CreatedAt, &order.UpdatedAt, &order.InvoiceNo, &order.TotalAmount, &order.UserID, &order.ProofOfTransfer); err != nil {
 			log.Println("Error scanning order row:", err)
 			http.Error(w, "Failed to retrieve orders", http.StatusInternalServerError)
 			return
@@ -281,13 +282,14 @@ func GetOrdersByFarm(w http.ResponseWriter, r *http.Request) {
 		// Organisasi data berdasarkan invoice
 		if _, exists := invoices[order.InvoiceID]; !exists {
 			invoices[order.InvoiceID] = map[string]interface{}{
-				"invoice_id":     order.InvoiceID,
-				"invoice_number": order.InvoiceNo,
-				"total_amount":   format.FormatCurrency(order.TotalAmount) + "0",
-				"nama_pembeli":   user.userName,
-				"no_telp":        user.noTelp,
-				"email":          user.email, // Tambahkan nama user
-				"products":       []map[string]interface{}{},
+				"invoice_id":        order.InvoiceID,
+				"invoice_number":    order.InvoiceNo,
+				"total_amount":      format.FormatCurrency(order.TotalAmount) + "0",
+				"nama_pembeli":      user.userName,
+				"no_telp":           user.noTelp,
+				"email":             user.email, // Tambahkan nama user
+				"products":          []map[string]interface{}{},
+				"proof_of_transfer": order.ProofOfTransfer, // Tambahkan proof_of_transfer jika ada
 			}
 		}
 
@@ -590,7 +592,8 @@ func GetAllOrdersByUserID(w http.ResponseWriter, r *http.Request) {
 			i.total_amount, 
 			i.payment_method, 
 			i.issued_date, 
-			i.due_date
+			i.due_date,
+			i.proof_of_transfer
 		FROM 
 			orders o
 		JOIN 
@@ -617,19 +620,20 @@ func GetAllOrdersByUserID(w http.ResponseWriter, r *http.Request) {
 	// Iterasi hasil query
 	for rows.Next() {
 		var order struct {
-			OrderID       int64
-			InvoiceID     int64
-			ProductID     int64
-			Quantity      int
-			TotalHarga    float64
-			Status        string
-			CreatedAt     time.Time
-			UpdatedAt     time.Time
-			InvoiceNumber string
-			TotalAmount   float64
-			PaymentMethod string
-			IssuedDate    time.Time
-			DueDate       time.Time
+			OrderID         int64
+			InvoiceID       int64
+			ProductID       int64
+			Quantity        int
+			TotalHarga      float64
+			Status          string
+			CreatedAt       time.Time
+			UpdatedAt       time.Time
+			InvoiceNumber   string
+			TotalAmount     float64
+			PaymentMethod   string
+			IssuedDate      time.Time
+			DueDate         time.Time
+			ProofOfTransfer *string
 		}
 
 		err := rows.Scan(
@@ -646,6 +650,7 @@ func GetAllOrdersByUserID(w http.ResponseWriter, r *http.Request) {
 			&order.PaymentMethod,
 			&order.IssuedDate,
 			&order.DueDate,
+			&order.ProofOfTransfer,
 		)
 		if err != nil {
 			log.Println("[ERROR] Failed to scan order row:", err)
@@ -656,6 +661,13 @@ func GetAllOrdersByUserID(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
+		// if order.ProofOfTransfer != nil && strings.Contains(*order.ProofOfTransfer, "https://github.com/") {
+		// 	rawBaseURL := "https://raw.githubusercontent.com"
+		// 	repoPath := "Ayala-crea/productImages/refs/heads/"
+		// 	imagePath := strings.TrimPrefix(*order.ProofOfTransfer, "https://github.com/Ayala-crea/productImages/blob/")
+		// 	formattedURL := fmt.Sprintf("%s/%s%s", rawBaseURL, repoPath, imagePath)
+		// 	order.ProofOfTransfer = &formattedURL
+		// }
 
 		var product model.Products
 		queryProduct := `SELECT name, price_per_kg FROM farm_products WHERE id = $1`
@@ -673,13 +685,14 @@ func GetAllOrdersByUserID(w http.ResponseWriter, r *http.Request) {
 		// Organisasi data berdasarkan invoice
 		if _, exists := invoices[order.InvoiceID]; !exists {
 			invoices[order.InvoiceID] = map[string]interface{}{
-				"invoice_id":     order.InvoiceID,
-				"invoice_number": order.InvoiceNumber,
-				"total_amount":   format.FormatCurrency(order.TotalAmount) + "0",
-				"payment_method": order.PaymentMethod,
-				"issued_date":    order.IssuedDate,
-				"due_date":       order.DueDate,
-				"products":       []map[string]interface{}{},
+				"invoice_id":        order.InvoiceID,
+				"invoice_number":    order.InvoiceNumber,
+				"total_amount":      format.FormatCurrency(order.TotalAmount) + "0",
+				"payment_method":    order.PaymentMethod,
+				"issued_date":       order.IssuedDate,
+				"due_date":          order.DueDate,
+				"products":          []map[string]interface{}{},
+				"proof_of_transfer": order.ProofOfTransfer,
 			}
 		}
 
