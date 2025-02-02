@@ -6,11 +6,14 @@ import (
 	"farmdistribution_be/config"
 	"farmdistribution_be/helper/at"
 	"farmdistribution_be/helper/format"
+	"farmdistribution_be/helper/ghupload"
 	"farmdistribution_be/helper/watoken"
 	"farmdistribution_be/model"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -709,4 +712,140 @@ func GetAllOrdersByUserID(w http.ResponseWriter, r *http.Request) {
 		"data":    result,
 	})
 	log.Println("Proses pengambilan semua order berdasarkan user ID selesai.")
+}
+
+func BuktiTransfer(w http.ResponseWriter, r *http.Request) {
+
+	sqlDB, err := config.PostgresDB.DB()
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":   "Internal Server Error",
+			"message": "Database connection failed.",
+		})
+		return
+	}
+
+	// Decode JWT
+	_, err = watoken.Decode(config.PUBLICKEY, at.GetLoginFromHeader(r))
+	if err != nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":   "Unauthorized",
+			"message": "Invalid or expired token. Please log in again.",
+		})
+		return
+	}
+
+	idInvoice := r.URL.Query().Get("id_invoice")
+	if idInvoice == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":   "Bad Request",
+			"message": "Invalid or missing invoice ID.",
+		})
+		return
+	}
+
+	err = r.ParseMultipartForm(10 << 20)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":   "Bad Request",
+			"message": "Error parsing form data.",
+		})
+		return
+	}
+	log.Println("[INFO] Form data parsed successfully")
+
+	file, handler, err := r.FormFile("bukti_transfer")
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":   "Bad Request",
+			"message": "Error retrieving file from form data.",
+		})
+		return
+	}
+	defer file.Close()
+	log.Println("[INFO] File retrieved successfully, filename:", handler.Filename, "size:", handler.Size)
+
+	if handler.Size > 5<<20 { // 5MB limit
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":   "Bad Request",
+			"message": "File size exceeds 5MB.",
+		})
+		return
+	}
+
+	allowedExtensions := []string{".jpg", ".jpeg", ".png"}
+	ext := strings.ToLower(handler.Filename[strings.LastIndex(handler.Filename, "."):])
+	isValid := false
+	for _, allowedExt := range allowedExtensions {
+		if ext == allowedExt {
+			isValid = true
+			break
+		}
+	}
+	if !isValid {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":   "Unsupported file format",
+			"message": "Only .jpg, .jpeg, and .png are allowed.",
+		})
+		return
+	}
+
+	fileContent, err := io.ReadAll(file)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":   "File read error",
+			"message": "Failed to read file content.",
+		})
+		return
+	}
+
+	hashedFileName := ghupload.CalculateHash(fileContent) + ext
+
+	GitHubAccessToken := config.GHAccessToken
+	GitHubAuthorName := "ayalarifki"
+	GitHubAuthorEmail := "ayalarifki@gmail.com"
+	githubOrg := "ayala-crea"
+	githubRepo := "proof_of_transfer"
+	pathFile := hashedFileName
+	replace := true
+
+	content, _, err := ghupload.GithubUpload(GitHubAccessToken, GitHubAuthorName, GitHubAuthorEmail, fileContent, githubOrg, githubRepo, pathFile, replace)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":   "Upload error",
+			"message": "Failed to upload image to GitHub.",
+		})
+		return
+	}
+	imageURL := *content.Content.HTMLURL
+
+	payment_status := "Success"
+
+	queryUpdate := `UPDATE invoice SET proof_of_transfer = $1, payment_status = $2 WHERE id = $3`
+	_, err = sqlDB.Exec(queryUpdate, imageURL, payment_status, idInvoice)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":   "Database error",
+			"message": "Failed to update invoice.",
+		})
+		return
+	}
+
+	response := map[string]interface{}{
+		"status":  "success",
+		"message": "Transfer image uploaded successfully.",
+	}
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
+	log.Println("[INFO] Response sent successfully")
 }
