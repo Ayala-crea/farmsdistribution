@@ -841,7 +841,7 @@ func BuktiTransfer(w http.ResponseWriter, r *http.Request) {
 	}
 	imageURL := *content.Content.HTMLURL
 
-	payment_status := "Success"
+	payment_status := "Sending"
 
 	queryUpdate := `UPDATE invoice SET proof_of_transfer = $1, payment_status = $2 WHERE id = $3`
 	_, err = sqlDB.Exec(queryUpdate, imageURL, payment_status, idInvoice)
