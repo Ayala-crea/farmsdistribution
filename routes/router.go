@@ -115,6 +115,13 @@ func InitializeRoutes() *mux.Router {
 	router.HandleFunc("/delete/akun", handleCORS(akun.DeleteAkun)).Methods("DELETE", "OPTIONS")
 	router.HandleFunc("/add/akun", handleCORS(akun.AddAkun)).Methods("POST", "OPTIONS")
 
+	// Pengirim
+	router.HandleFunc("/add/pengirim", handleCORS(order.CreatePengirim)).Methods("POST", "OPTIONS")
+	router.HandleFunc("/pengirim", handleCORS(order.GetAllPengirimByFarmID)).Methods("GET", "OPTIONS")
+	router.HandleFunc("/pengirim/get/", handleCORS(order.GetPengirimByID)).Methods("GET", "OPTIONS")
+	router.HandleFunc("/pengirim/update", handleCORS(order.UpdatePengirim)).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/pengirim/delete", handleCORS(order.DeletePengirim)).Methods("DELETE", "OPTIONS")
+
 	return router
 }
 
