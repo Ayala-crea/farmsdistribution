@@ -92,7 +92,7 @@ func CreatePengirim(w http.ResponseWriter, r *http.Request) {
 	}
 	pengirim.Password = string(hashedPassword)
 
-	query = `INSERT INTO pengirim (email, phone, name, address, vehicle_plate, vehicle_type, vehicle_color, farm_id, password) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`
+	query = `INSERT INTO pengirim (email, no_telp, nama, address, vehicle_plate, vehicle_type, vehicle_color, farm_id, password) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`
 	err = sqlDB.QueryRow(query, pengirim.Email, pengirim.NoTelp, pengirim.Nama, pengirim.Alamat, pengirim.PlatKendaraan, pengirim.TypeKendaraan, pengirim.WarnaKendaraan, farmId, pengirim.Password).Scan(&pengirim.ID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
