@@ -105,19 +105,34 @@ func GetAllPengirimByFarmID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	vars := mux.Vars(r)
-	farmID, err := strconv.Atoi(vars["farm_id"])
+	pyload, err := watoken.Decode(config.PUBLICKEY, at.GetLoginFromHeader(r))
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error":   "Invalid farm ID",
-			"message": "Farm ID must be a valid integer.",
-		})
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+	noTelp := pyload.Id
+
+	var ownerID int64
+	query := `SELECT id_user FROM akun WHERE no_telp = $1`
+	err = sqlDB.QueryRow(query, noTelp).Scan(&ownerID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	query := `SELECT id, email, phone, name, address, vehicle_plate, vehicle_type, vehicle_color FROM pengirim WHERE farm_id = $1`
-	rows, err := sqlDB.Query(query, farmID)
+	var farmId int
+	query = `SELECT id FROM farms WHERE owner_id = $1`
+	err = sqlDB.QueryRow(query, ownerID).Scan(&farmId)
+	if err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":   "Farm not found",
+			"message": "No farm found for the given owner ID.",
+		})
+		return
+	}
+	query = `SELECT id, email, phone, name, address, vehicle_plate, vehicle_type, vehicle_color FROM pengirim WHERE farm_id = $1`
+	rows, err := sqlDB.Query(query, farmId)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
