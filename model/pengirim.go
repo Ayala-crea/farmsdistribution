@@ -6,10 +6,10 @@ import (
 
 type Pengirim struct {
 	ID             int    `json:"id"`
-	Nama           string `json:"nama"`
+	Nama           string `json:"name"`
 	Email          string `json:"email"`
-	NoTelp         string `json:"no_telp"`
-	Alamat         string `json:"alamat"`
+	NoTelp         string `json:"phone"`
+	Alamat         string `json:"address"`
 	PlatKendaraan  string `json:"vehicle_plate"`
 	TypeKendaraan  string `json:"vehicle_type"`
 	WarnaKendaraan string `json:"vehicle_color"`
