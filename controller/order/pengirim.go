@@ -70,18 +70,6 @@ func CreatePengirim(w http.ResponseWriter, r *http.Request) {
 	// 	return
 	// }
 
-	var existingUser model.Pengirim
-	checkQuery := `SELECT id FROM pengirim WHERE email = $1 OR phone = $2`
-	err = sqlDB.QueryRow(checkQuery, pengirim.Email, pengirim.NoTelp).Scan(&existingUser.ID)
-	if err == nil {
-		w.WriteHeader(http.StatusConflict)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error":   "Conflict",
-			"message": "Email or phone number already registered. Please use another email and phone number.",
-		})
-		return
-	}
-
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(pengirim.Password), bcrypt.DefaultCost)
 	if err != nil {
 		log.Printf("Error hashing password: %v", err)
