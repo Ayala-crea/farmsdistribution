@@ -7,6 +7,7 @@ import (
 	"farmdistribution_be/helper/at"
 	"farmdistribution_be/helper/watoken"
 	"farmdistribution_be/model"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -59,14 +60,15 @@ func CreatePengirim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if pengirim.Nama == "" || pengirim.Email == "" || pengirim.NoTelp == "" || pengirim.Alamat == "" || pengirim.PlatKendaraan == "" || pengirim.TypeKendaraan == "" || pengirim.WarnaKendaraan == "" || pengirim.Password == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error":   "Missing required fields",
-			"message": "Please fill in all fields: name, email, phone number, address, vehicle plate, vehicle type, vehicle color, and password.",
-		})
-		return
-	}
+	fmt.Println("Pengirim: ", pengirim)
+	// if pengirim.Nama == "" || pengirim.Email == "" || pengirim.NoTelp == "" || pengirim.Alamat == "" || pengirim.PlatKendaraan == "" || pengirim.TypeKendaraan == "" || pengirim.WarnaKendaraan == "" || pengirim.Password == "" {
+	// 	w.WriteHeader(http.StatusBadRequest)
+	// 	json.NewEncoder(w).Encode(map[string]string{
+	// 		"error":   "Missing required fields",
+	// 		"message": "Please fill in all fields: name, email, phone number, address, vehicle plate, vehicle type, vehicle color, and password.",
+	// 	})
+	// 	return
+	// }
 
 	var existingUser model.Pengirim
 	checkQuery := `SELECT id FROM pengirim WHERE email = $1 OR no_telp = $2`
@@ -91,7 +93,7 @@ func CreatePengirim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pengirim.Password = string(hashedPassword)
-
+	fmt.Printf("Farm ID: %v\n", farmId)
 	query = `INSERT INTO pengirim (email, no_telp, nama, address, vehicle_plate, vehicle_type, vehicle_color, farm_id, password) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`
 	err = sqlDB.QueryRow(query, pengirim.Email, pengirim.NoTelp, pengirim.Nama, pengirim.Alamat, pengirim.PlatKendaraan, pengirim.TypeKendaraan, pengirim.WarnaKendaraan, farmId, pengirim.Password).Scan(&pengirim.ID)
 	if err != nil {
