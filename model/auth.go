@@ -33,7 +33,7 @@ type Akun struct {
 	Nama      string    `gorm:"type:varchar(100);not null" json:"nama"`
 	NoTelp    string    `gorm:"type:varchar(15)" json:"no_telp"`
 	Email     string    `gorm:"type:varchar(100);unique;not null" json:"email"`
-	RoleID    int       `gorm:"type:int;not null;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;" json:"id_role"` // Foreign key to role table
+	RoleID    int       `gorm:"column:id_role;type:int;not null;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;" json:"id_role"` // Foreign key to role table
 	Password  string    `gorm:"type:varchar(255);not null" json:"password"`
 	CreatedAt time.Time `gorm:"type:timestamp;default:current_timestamp" json:"created_at"`
 	UpdatedAt time.Time `gorm:"type:timestamp;default:current_timestamp" json:"updated_at"`

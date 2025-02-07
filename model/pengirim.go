@@ -15,6 +15,7 @@ type Pengirim struct {
 	WarnaKendaraan string `json:"vehicle_color"`
 	FarmId         int    `json:"farm_id"`
 	Password       string `json:"password"`
+	RoleID         int    `gorm:"column:id_role"json:"id_role"`
 }
 
 type ProsesPengiriman struct {
