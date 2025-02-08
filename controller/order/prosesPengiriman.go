@@ -127,6 +127,211 @@ func GetAllProsesPengiriman(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
+func GetAllProsesPengirimanPeternak(w http.ResponseWriter, r *http.Request) {
+
+	// Get database connection
+	sqlDB, err := config.PostgresDB.DB()
+	if err != nil {
+		log.Println("[ERROR] Failed to connect to database:", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Decode token to get user details
+	payload, err := watoken.Decode(config.PUBLICKEY, at.GetLoginFromHeader(r))
+	if err != nil {
+		log.Println("[ERROR] Invalid or expired token:", err)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Retrieve owner ID from akun table
+	var ownerID int64
+	query := `SELECT id_user FROM akun WHERE no_telp = $1`
+	err = sqlDB.QueryRow(query, payload.Id).Scan(&ownerID)
+	if err != nil {
+		log.Println("[ERROR] Failed to find owner ID for no_telp:", payload.Id, err)
+		http.Error(w, "User not found", http.StatusNotFound)
+		return
+	}
+
+	// Retrieve farm ID associated with owner
+	var farmId int
+	queryFarm := `SELECT id FROM farms WHERE owner_id = $1`
+	err = sqlDB.QueryRow(queryFarm, ownerID).Scan(&farmId)
+	if err != nil {
+		log.Println("[ERROR] No farm found for owner:", ownerID)
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":   "Not Found",
+			"message": "No farm found for the given owner.",
+		})
+		return
+	}
+
+	// Retrieve product IDs from farm_products table
+	queryProduct := `SELECT id FROM farm_products WHERE farm_id = $1`
+	rows, err := sqlDB.Query(queryProduct, farmId)
+	if err != nil {
+		log.Println("[ERROR] Failed to retrieve products for farm:", farmId, err)
+		http.Error(w, "No invoice found", http.StatusNotFound)
+		return
+	}
+	defer rows.Close()
+
+	var productIds []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			log.Println("[ERROR] Failed to scan product ID:", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		productIds = append(productIds, id)
+	}
+	if len(productIds) == 0 {
+		log.Println("[INFO] No products found for farm ID:", farmId)
+		http.Error(w, "No product found", http.StatusNotFound)
+		return
+	}
+
+	// Convert product IDs to string for query
+	productIdStr := make([]string, len(productIds))
+	for i, id := range productIds {
+		productIdStr[i] = fmt.Sprintf("%d", id)
+	}
+	productIdQuery := strings.Join(productIdStr, ",")
+
+	// Retrieve id_proses_pengiriman from orders table
+	queryIdProsesPengiriman := fmt.Sprintf(`SELECT id_proses_pengiriman FROM orders WHERE product_id IN (%s)`, productIdQuery)
+	rows, err = sqlDB.Query(queryIdProsesPengiriman)
+	if err != nil {
+		log.Println("[ERROR] Failed to get proses pengiriman IDs:", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var idProsesPengiriman []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			log.Println("[ERROR] Failed to scan proses pengiriman ID:", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		idProsesPengiriman = append(idProsesPengiriman, id)
+	}
+	if len(idProsesPengiriman) == 0 {
+		log.Println("[INFO] No proses_pengiriman found for products")
+		http.Error(w, "No proses_pengiriman found", http.StatusNotFound)
+		return
+	}
+	log.Println("[INFO] Proses pengiriman IDs retrieved:", idProsesPengiriman)
+
+	idProsesPengirimanStr := make([]string, len(idProsesPengiriman))
+	for i, id := range idProsesPengiriman {
+		idProsesPengirimanStr[i] = strconv.Itoa(int(id))
+	}
+
+	// Retrieve proses pengiriman details
+	queryProsesPengiriman := fmt.Sprintf(`SELECT id, hari_dikirim, tanggal_dikirim, tanggal_diterima, 
+						hari_diterima, id_pengirim, status_pengiriman, 
+						image_pengiriman, alamat_pengirim, alamat_penerima 
+						FROM proses_pengiriman WHERE id IN (%s)`, strings.Join(idProsesPengirimanStr, ","))
+	rows, err = sqlDB.Query(queryProsesPengiriman)
+	if err != nil {
+		log.Println("[ERROR] Failed to get proses pengiriman details:", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var prosesPengirimanList []model.ProsesPengiriman
+	for rows.Next() {
+		var pp model.ProsesPengiriman
+		if err := rows.Scan(&pp.ID, &pp.HariDikirim, &pp.TanggalDikirim, &pp.TanggalDiterima,
+			&pp.HariDiterima, &pp.IdPengirim, &pp.StatusPengiriman,
+			&pp.ImagePengiriman, &pp.AlamatPengirim, &pp.AlamatPenerima); err != nil {
+			log.Println("[ERROR] Failed to scan proses pengiriman record:", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		prosesPengirimanList = append(prosesPengirimanList, pp)
+	}
+
+	response := map[string]interface{}{
+		"status":  "success",
+		"message": "Proses pengiriman retrieved successfully",
+		"data":    prosesPengirimanList,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
+}
+
+func GetAllProsesPengirimanPengirim(w http.ResponseWriter, r *http.Request) {
+	sqlDB, err := config.PostgresDB.DB()
+	if err != nil {
+		log.Println("[ERROR] Failed to connect to database:", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Decode token to get user details
+	payload, err := watoken.Decode(config.PUBLICKEY, at.GetLoginFromHeader(r))
+	if err != nil {
+		log.Println("[ERROR] Invalid or expired token:", err)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Ambil id_user dari tabel akun berdasarkan no_telp
+	var ownerID int64
+	query := `SELECT id FROM pengirim WHERE phone = $1`
+	err = sqlDB.QueryRow(query, payload.Id).Scan(&ownerID)
+	if err != nil {
+		log.Println("[ERROR] Failed to find owner ID for no_telp:", payload.Id, err)
+		http.Error(w, "User not found", http.StatusNotFound)
+		return
+	}
+
+	queryProsesPengiriman := `SELECT id, hari_dikirim, tanggal_dikirim, tanggal_diterima, hari_diterima, status_pengiriman, image_pengiriman, alamat_pengirim, alamat_penerima FROM proses_pengiriman WHERE id_pengirim = $1`
+	rows, err := sqlDB.Query(queryProsesPengiriman, ownerID)
+	if err != nil {
+		log.Println("[ERROR] Failed to get proses pengiriman:", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+	var prosesPengirimanList []model.ProsesPengiriman
+	for rows.Next() {
+		var pp model.ProsesPengiriman
+		if err := rows.Scan(&pp.ID, &pp.HariDikirim, &pp.TanggalDikirim, &pp.TanggalDiterima, &pp.HariDiterima, &pp.StatusPengiriman, &pp.ImagePengiriman, &pp.AlamatPengirim, &pp.AlamatPenerima); err != nil {
+			log.Println("[ERROR] Failed to scan proses pengiriman:", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		prosesPengirimanList = append(prosesPengirimanList, pp)
+	}
+	if len(prosesPengirimanList) == 0 {
+		log.Println("[INFO] No proses_pengiriman found for invoices.")
+		http.Error(w, "No proses_pengiriman found", http.StatusNotFound)
+		return
+	}
+	// Membuat response JSON
+	response := map[string]interface{}{
+		"status":  "success",
+		"message": "Proses pengiriman retrieved successfully",
+		"data":    prosesPengirimanList,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
+}
+
 // GetProsesPengirimanByID mengambil data proses pengiriman berdasarkan ID
 func GetProsesPengirimanByID(w http.ResponseWriter, r *http.Request) {
 	// Get database connection

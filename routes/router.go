@@ -126,7 +126,8 @@ func InitializeRoutes() *mux.Router {
 	router.HandleFunc("/proses-pengiriman", handleCORS(order.GetAllProsesPengiriman)).Methods("GET", "OPTIONS")
 	router.HandleFunc("/proses-pengiriman/{id}", handleCORS(order.GetProsesPengirimanByID)).Methods("GET", "OPTIONS")
 	router.HandleFunc("/proses-pengiriman/edit/{id}", handleCORS(order.UpdateProsesPengiriman)).Methods("PUT", "OPTIONS")
-
+	router.HandleFunc("/proses-pengiriman/peternak/", handleCORS(order.GetAllProsesPengirimanPeternak)).Methods("GET", "OPTIONS")
+	router.HandleFunc("/proses-pengiriman/pengirim/", handleCORS(order.GetAllProsesPengirimanPengirim)).Methods("GET", "OPTIONS")
 	return router
 }
 

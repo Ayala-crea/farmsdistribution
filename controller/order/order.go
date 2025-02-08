@@ -96,6 +96,66 @@ func CreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	for _, product := range Orders.Products {
+		var productPrice, stockKg float64
+		queryProduct := `SELECT price_per_kg, stock_kg FROM farm_products WHERE id = $1`
+		err = tx.QueryRow(queryProduct, product.ProductID).Scan(&productPrice, &stockKg)
+		if err != nil {
+			log.Println("Error retrieving product details:", err)
+			tx.Rollback()
+			http.Error(w, "Product not found", http.StatusBadRequest)
+			return
+		}
+
+		if stockKg < float64(product.Quantity) {
+			log.Println("Stock tidak mencukupi untuk produk:", product.ProductID)
+			tx.Rollback()
+			http.Error(w, "Stock is insufficient", http.StatusBadRequest)
+			return
+		}
+
+		productTotal := productPrice * float64(product.Quantity)
+
+		insertOrderQuery := `INSERT INTO orders (user_id, product_id, quantity, total_harga, status, pengiriman_id, invoice_id, created_at, updated_at) VALUES ($1, $2, $3, $4, 'Pending', $5, $6, NOW(), NOW())`
+		_, err = tx.Exec(insertOrderQuery, ownerID, product.ProductID, product.Quantity, productTotal, Orders.PengirimanID, invoiceId)
+		if err != nil {
+			log.Println("Error inserting order:", err)
+			tx.Rollback()
+			http.Error(w, "Failed to create order", http.StatusInternalServerError)
+			return
+		}
+
+		updateStockQuery := `UPDATE farm_products SET stock_kg = stock_kg - $1 WHERE id = $2`
+		_, err = tx.Exec(updateStockQuery, product.Quantity, product.ProductID)
+		if err != nil {
+			log.Println("Error updating product stock:", err)
+			tx.Rollback()
+			http.Error(w, "Failed to update stock", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	var totalHargaOrders float64
+	queryTotalHarga := `SELECT COALESCE(SUM(total_harga), 0) FROM orders WHERE invoice_id = $1`
+	err = tx.QueryRow(queryTotalHarga, invoiceId).Scan(&totalHargaOrders)
+	if err != nil {
+		log.Println("Error retrieving total harga from orders:", err)
+		tx.Rollback()
+		http.Error(w, "Failed to calculate total order amount", http.StatusInternalServerError)
+		return
+	}
+
+	totalAmount := totalHargaOrders + shippingCost
+
+	updateInvoiceQuery := `UPDATE invoice SET total_amount = $1, total_harga_product = $2 WHERE id = $3`
+	_, err = tx.Exec(updateInvoiceQuery, totalAmount, totalHargaOrders, invoiceId)
+	if err != nil {
+		log.Println("Error updating invoice total_amount:", err)
+		tx.Rollback()
+		http.Error(w, "Failed to update invoice total amount", http.StatusInternalServerError)
+		return
+	}
+
 	insertShippingQuery := `INSERT INTO proses_pengiriman 
     (hari_dikirim, tanggal_dikirim, id_invoice, status_pengiriman, alamat_pengirim, alamat_penerima, location_pengirim, location_penerima, created_at, updated_at) 
     VALUES ($1, NOW(), $2, 'Pending', $3, $4, ST_SetSRID(ST_MakePoint($5, $6), 4326), ST_SetSRID(ST_MakePoint($7, $8), 4326), NOW(), NOW())`
