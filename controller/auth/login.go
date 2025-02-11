@@ -111,7 +111,7 @@ func LoginUsers(w http.ResponseWriter, r *http.Request) {
 	if userType == "akun" {
 		token, err = watoken.EncodeforHours(akun.NoTelp, akun.Nama, PrivateKey, 18)
 	} else {
-		token, err = watoken.EncodeforHours(pengirim.NoTelp, pengirim.Nama, PrivateKey, 18)
+		token, err = watoken.EncodeforHours("081313131316", pengirim.Nama, PrivateKey, 18)
 	}
 
 	if err != nil {
