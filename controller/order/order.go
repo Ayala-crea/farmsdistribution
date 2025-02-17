@@ -96,6 +96,24 @@ func CreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var prosesPengirimanID int
+	insertShippingQuery := `INSERT INTO proses_pengiriman 
+		(hari_dikirim, tanggal_dikirim, id_invoice, status_pengiriman, alamat_pengirim, alamat_penerima, location_pengirim, location_penerima, created_at, updated_at) 
+		VALUES ($1, NOW(), $2, 'Pending', $3, $4, ST_SetSRID(ST_MakePoint($5, $6), 4326), ST_SetSRID(ST_MakePoint($7, $8), 4326), NOW(), NOW()) RETURNING id`
+
+	err = tx.QueryRow(insertShippingQuery,
+		time.Now().Weekday().String(), invoiceId,
+		Orders.AlamatPengirim, Orders.AlamatPenerima,
+		Orders.LocationPengirim[0], Orders.LocationPengirim[1],
+		Orders.LocationPenerima[0], Orders.LocationPenerima[1]).Scan(&prosesPengirimanID)
+
+	if err != nil {
+		log.Println("Error inserting shipping process:", err)
+		tx.Rollback()
+		http.Error(w, "Failed to create shipping process", http.StatusInternalServerError)
+		return
+	}
+
 	for _, product := range Orders.Products {
 		var productPrice, stockKg float64
 		queryProduct := `SELECT price_per_kg, stock_kg FROM farm_products WHERE id = $1`
@@ -116,8 +134,8 @@ func CreateOrder(w http.ResponseWriter, r *http.Request) {
 
 		productTotal := productPrice * float64(product.Quantity)
 
-		insertOrderQuery := `INSERT INTO orders (user_id, product_id, quantity, total_harga, status, pengiriman_id, invoice_id, created_at, updated_at) VALUES ($1, $2, $3, $4, 'Pending', $5, $6, NOW(), NOW())`
-		_, err = tx.Exec(insertOrderQuery, ownerID, product.ProductID, product.Quantity, productTotal, Orders.PengirimanID, invoiceId)
+		insertOrderQuery := `INSERT INTO orders (user_id, product_id, quantity, total_harga, status, pengiriman_id, invoice_id, id_proses_pengiriman, created_at, updated_at) VALUES ($1, $2, $3, $4, 'Pending', $5, $6, $7, NOW(), NOW())`
+		_, err = tx.Exec(insertOrderQuery, ownerID, product.ProductID, product.Quantity, productTotal, Orders.PengirimanID, invoiceId, prosesPengirimanID)
 		if err != nil {
 			log.Println("Error inserting order:", err)
 			tx.Rollback()
@@ -153,21 +171,6 @@ func CreateOrder(w http.ResponseWriter, r *http.Request) {
 		log.Println("Error updating invoice total_amount:", err)
 		tx.Rollback()
 		http.Error(w, "Failed to update invoice total amount", http.StatusInternalServerError)
-		return
-	}
-
-	insertShippingQuery := `INSERT INTO proses_pengiriman 
-    (hari_dikirim, tanggal_dikirim, id_invoice, status_pengiriman, alamat_pengirim, alamat_penerima, location_pengirim, location_penerima, created_at, updated_at) 
-    VALUES ($1, NOW(), $2, 'Pending', $3, $4, ST_SetSRID(ST_MakePoint($5, $6), 4326), ST_SetSRID(ST_MakePoint($7, $8), 4326), NOW(), NOW())`
-
-	_, err = tx.Exec(insertShippingQuery,
-		time.Now().Weekday().String(), invoiceId,
-		Orders.AlamatPengirim, Orders.AlamatPenerima,
-		Orders.LocationPengirim[0], Orders.LocationPengirim[1],
-		Orders.LocationPenerima[0], Orders.LocationPenerima[1])
-
-	if err != nil {
-		log.Println("Error inserting shipping process:", err)
 		return
 	}
 
