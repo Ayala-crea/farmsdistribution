@@ -1,6 +1,7 @@
 package order
 
 import (
+	"database/sql"
 	"encoding/json"
 	"farmdistribution_be/config"
 	"farmdistribution_be/helper/at"
@@ -128,6 +129,7 @@ func GetAllProsesPengiriman(w http.ResponseWriter, r *http.Request) {
 }
 
 func GetAllProsesPengirimanPeternak(w http.ResponseWriter, r *http.Request) {
+	log.Println("[INFO] Handling GetAllProsesPengirimanPeternak request")
 
 	// Get database connection
 	sqlDB, err := config.PostgresDB.DB()
@@ -138,26 +140,31 @@ func GetAllProsesPengirimanPeternak(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Decode token to get user details
+	log.Println("[INFO] Decoding token to get user details")
 	payload, err := watoken.Decode(config.PUBLICKEY, at.GetLoginFromHeader(r))
 	if err != nil {
 		log.Println("[ERROR] Invalid or expired token:", err)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
+	log.Println("[INFO] Token decoded successfully for user:", payload.Id)
 
 	// Retrieve owner ID from akun table
 	var ownerID int64
 	query := `SELECT id_user FROM akun WHERE no_telp = $1`
+	log.Println("[INFO] Retrieving owner ID for user:", payload.Id)
 	err = sqlDB.QueryRow(query, payload.Id).Scan(&ownerID)
 	if err != nil {
 		log.Println("[ERROR] Failed to find owner ID for no_telp:", payload.Id, err)
 		http.Error(w, "User not found", http.StatusNotFound)
 		return
 	}
+	log.Println("[INFO] Retrieved owner ID:", ownerID)
 
 	// Retrieve farm ID associated with owner
 	var farmId int
 	queryFarm := `SELECT id FROM farms WHERE owner_id = $1`
+	log.Println("[INFO] Retrieving farm ID for owner:", ownerID)
 	err = sqlDB.QueryRow(queryFarm, ownerID).Scan(&farmId)
 	if err != nil {
 		log.Println("[ERROR] No farm found for owner:", ownerID)
@@ -168,9 +175,11 @@ func GetAllProsesPengirimanPeternak(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	log.Println("[INFO] Retrieved farm ID:", farmId)
 
 	// Retrieve product IDs from farm_products table
 	queryProduct := `SELECT id FROM farm_products WHERE farm_id = $1`
+	log.Println("[INFO] Retrieving product IDs for farm:", farmId)
 	rows, err := sqlDB.Query(queryProduct, farmId)
 	if err != nil {
 		log.Println("[ERROR] Failed to retrieve products for farm:", farmId, err)
@@ -181,29 +190,28 @@ func GetAllProsesPengirimanPeternak(w http.ResponseWriter, r *http.Request) {
 
 	var productIds []int64
 	for rows.Next() {
-		var id int64
+		var id sql.NullInt64
 		if err := rows.Scan(&id); err != nil {
 			log.Println("[ERROR] Failed to scan product ID:", err)
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
-		productIds = append(productIds, id)
+		if id.Valid {
+			productIds = append(productIds, id.Int64)
+		}
 	}
+	log.Println("[INFO] Retrieved product IDs:", productIds)
+
 	if len(productIds) == 0 {
 		log.Println("[INFO] No products found for farm ID:", farmId)
 		http.Error(w, "No product found", http.StatusNotFound)
 		return
 	}
 
-	// Convert product IDs to string for query
-	productIdStr := make([]string, len(productIds))
-	for i, id := range productIds {
-		productIdStr[i] = fmt.Sprintf("%d", id)
-	}
-	productIdQuery := strings.Join(productIdStr, ",")
-
 	// Retrieve id_proses_pengiriman from orders table
-	queryIdProsesPengiriman := fmt.Sprintf(`SELECT id_proses_pengiriman FROM orders WHERE product_id IN (%s)`, productIdQuery)
+	log.Println("[INFO] Retrieving id_proses_pengiriman for products")
+	productIdStr := strings.Trim(strings.Join(strings.Fields(fmt.Sprint(productIds)), ","), "[]")
+	queryIdProsesPengiriman := fmt.Sprintf(`SELECT id_proses_pengiriman FROM orders WHERE product_id IN (%s)`, productIdStr)
 	rows, err = sqlDB.Query(queryIdProsesPengiriman)
 	if err != nil {
 		log.Println("[ERROR] Failed to get proses pengiriman IDs:", err)
@@ -214,31 +222,30 @@ func GetAllProsesPengirimanPeternak(w http.ResponseWriter, r *http.Request) {
 
 	var idProsesPengiriman []int64
 	for rows.Next() {
-		var id int64
+		var id sql.NullInt64
 		if err := rows.Scan(&id); err != nil {
 			log.Println("[ERROR] Failed to scan proses pengiriman ID:", err)
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
-		idProsesPengiriman = append(idProsesPengiriman, id)
+		if id.Valid {
+			idProsesPengiriman = append(idProsesPengiriman, id.Int64)
+		}
 	}
+	log.Println("[INFO] Retrieved proses pengiriman IDs:", idProsesPengiriman)
+
 	if len(idProsesPengiriman) == 0 {
 		log.Println("[INFO] No proses_pengiriman found for products")
 		http.Error(w, "No proses_pengiriman found", http.StatusNotFound)
 		return
 	}
-	log.Println("[INFO] Proses pengiriman IDs retrieved:", idProsesPengiriman)
-
-	idProsesPengirimanStr := make([]string, len(idProsesPengiriman))
-	for i, id := range idProsesPengiriman {
-		idProsesPengirimanStr[i] = strconv.Itoa(int(id))
-	}
 
 	// Retrieve proses pengiriman details
+	log.Println("[INFO] Retrieving proses pengiriman details")
+	idProsesPengirimanStr := strings.Trim(strings.Join(strings.Fields(fmt.Sprint(idProsesPengiriman)), ","), "[]")
 	queryProsesPengiriman := fmt.Sprintf(`SELECT id, hari_dikirim, tanggal_dikirim, tanggal_diterima, 
-						hari_diterima, id_pengirim, status_pengiriman, 
-						image_pengiriman, alamat_pengirim, alamat_penerima 
-						FROM proses_pengiriman WHERE id IN (%s)`, strings.Join(idProsesPengirimanStr, ","))
+		hari_diterima, id_pengirim, status_pengiriman, image_pengiriman, alamat_pengirim, alamat_penerima 
+		FROM proses_pengiriman WHERE id IN (%s)`, idProsesPengirimanStr)
 	rows, err = sqlDB.Query(queryProsesPengiriman)
 	if err != nil {
 		log.Println("[ERROR] Failed to get proses pengiriman details:", err)
@@ -259,6 +266,7 @@ func GetAllProsesPengirimanPeternak(w http.ResponseWriter, r *http.Request) {
 		}
 		prosesPengirimanList = append(prosesPengirimanList, pp)
 	}
+	log.Println("[INFO] Proses pengiriman details retrieved successfully")
 
 	response := map[string]interface{}{
 		"status":  "success",
