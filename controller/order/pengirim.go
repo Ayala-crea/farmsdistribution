@@ -168,6 +168,50 @@ func GetAllPengirimByFarmID(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
+func GetAllPengirim(w http.ResponseWriter, r *http.Request) {
+	sqlDB, err := config.PostgresDB.DB()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	query := `SELECT id, email, phone, name, address, vehicle_plate, vehicle_type, vehicle_color FROM pengirim`
+	rows, err := sqlDB.Query(query)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var pengirims []model.Pengirim
+
+	for rows.Next() {
+		var pengirim model.Pengirim
+		if err := rows.Scan(&pengirim.ID, &pengirim.Email, &pengirim.NoTelp, &pengirim.Nama, &pengirim.Alamat, &pengirim.PlatKendaraan, &pengirim.TypeKendaraan, &pengirim.WarnaKendaraan); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		pengirims = append(pengirims, pengirim)
+	}
+
+	if len(pengirims) == 0 {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":   "No Pengirim found",
+			"message": "No pengirim found in the database.",
+		})
+		return
+	}
+
+	response := map[string]interface{}{
+		"message":   "Pengirim retrieved successfully",
+		"pengirims": pengirims,
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
+}
+
 func GetPengirimByID(w http.ResponseWriter, r *http.Request) {
 	sqlDB, err := config.PostgresDB.DB()
 	if err != nil {
